@@ -12,14 +12,6 @@ import (
 	"github.com/ysugimoto/falco/interpreter/variable"
 )
 
-func (i *Interpreter) ProcessTestSubroutine(scope context.Scope, sub *ast.SubroutineDeclaration) error {
-	i.SetScope(scope)
-	if _, err := i.ProcessSubroutine(sub, DebugPass); err != nil {
-		return errors.WithStack(err)
-	}
-	return nil
-}
-
 func (i *Interpreter) ProcessSubroutine(sub *ast.SubroutineDeclaration, ds DebugState) (State, error) {
 	i.process.Flows = append(i.process.Flows, process.NewFlow(i.ctx, sub))
 
@@ -200,7 +192,7 @@ func (i *Interpreter) ProcessFunctionSubroutine(sub *ast.SubroutineDeclaration, 
 }
 
 func (i *Interpreter) ProcessExpressionReturnStatement(stmt *ast.ReturnStatement) (value.Value, State, error) {
-	val, err := i.ProcessExpression(*stmt.ReturnExpression, false)
+	val, err := i.ProcessExpression(stmt.ReturnExpression, false)
 	if err != nil {
 		return value.Null, NONE, errors.WithStack(err)
 	}
@@ -244,7 +236,7 @@ func (i *Interpreter) extractBoilerplateMacro(sub *ast.SubroutineDeclaration) er
 
 	var resolved []ast.Statement
 	// Find "FASTLY [macro]" comment and extract in infix comment of block statement
-	if hasFastlyBoilerplateMacro(sub.Block.InfixComment(), macroName) {
+	if hasFastlyBoilerplateMacro(sub.Block.Infix, macroName) {
 		for _, s := range snippets {
 			statements, err := loadStatementVCL(s.Name, s.Data)
 			if err != nil {
@@ -260,7 +252,7 @@ func (i *Interpreter) extractBoilerplateMacro(sub *ast.SubroutineDeclaration) er
 	// Find "FASTLY [macro]" comment and extract inside block statement
 	var found bool // guard flag, embedding macro should do only once
 	for _, stmt := range sub.Block.Statements {
-		if hasFastlyBoilerplateMacro(stmt.LeadingComment(), macroName) && !found {
+		if hasFastlyBoilerplateMacro(stmt.GetMeta().Leading, macroName) && !found {
 			for _, s := range snippets {
 				statements, err := loadStatementVCL(s.Name, s.Data)
 				if err != nil {
@@ -276,10 +268,10 @@ func (i *Interpreter) extractBoilerplateMacro(sub *ast.SubroutineDeclaration) er
 	return nil
 }
 
-func hasFastlyBoilerplateMacro(commentText, macroName string) bool {
-	for _, c := range strings.Split(commentText, "\n") {
-		c = strings.TrimLeft(c, " */#")
-		if strings.HasPrefix(strings.ToUpper(c), macroName) {
+func hasFastlyBoilerplateMacro(cs ast.Comments, macroName string) bool {
+	for _, c := range cs {
+		line := strings.TrimLeft(c.String(), " */#")
+		if strings.HasPrefix(strings.ToUpper(line), macroName) {
 			return true
 		}
 	}

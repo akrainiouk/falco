@@ -182,6 +182,21 @@ backend.socket.tcpi_total_retrans:
   on: [FETCH]
   get: INTEGER
 
+backend.%any%.connections_open:
+  reference: "https://www.fastly.com/documentation/reference/vcl/variables/backend-connection/backend-connections-open/"
+  on: [RECV, HASH, HIT, MISS, PASS, FETCH, ERROR, DELIVER, LOG]
+  get: INTEGER
+
+backend.%any%.connections_used:
+  reference: "https://www.fastly.com/documentation/reference/vcl/variables/backend-connection/backend-connections-used/"
+  on: [RECV, HASH, HIT, MISS, PASS, FETCH, ERROR, DELIVER, LOG]
+  get: INTEGER
+
+backend.%any%.healthy:
+  reference: "https://developer.fastly.com/reference/vcl/variables/backend-connection/backend-healthy/"
+  on: [RECV, HASH, HIT, MISS, PASS, FETCH, ERROR, DELIVER, LOG]
+  get: INTEGER
+
 bereq.between_bytes_timeout:
   reference: "https://developer.fastly.com/reference/vcl/variables/backend-connection/bereq-between-bytes-timeout/"
   on: [PASS, MISS]
@@ -953,6 +968,11 @@ tls.client.tlsexts_list_txt:
 
 tls.client.tlsexts_sha:
   reference: "https://developer.fastly.com/reference/vcl/variables/client-connection/tls-client-tlsexts-sha/"
+  on: [RECV, HASH, DELIVER, LOG]
+  get: STRING
+
+tls.client.ja4:
+  reference: "https://developer.fastly.com/documentation/reference/vcl/variables/client-connection/tls-client-ja4/"
   on: [RECV, HASH, DELIVER, LOG]
   get: STRING
 

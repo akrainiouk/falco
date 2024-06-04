@@ -41,6 +41,7 @@ const (
 	COMMENT = "COMMENT"
 	TRUE    = "TRUE"
 	FALSE   = "FALSE"
+	PERCENT = "PERCENT"
 	LF      = "LF" // "\n"
 
 	// Operators
@@ -96,7 +97,7 @@ const (
 	DIRECTOR         = "DIRECTOR"         // director
 	BACKEND          = "BACKEND"          // backend
 	TABLE            = "TABLE"            // table
-	SUBROUTINE       = "SUBROUTINE"       // sub"
+	SUBROUTINE       = "SUBROUTINE"       // sub
 	ADD              = "ADD"              // add
 	CALL             = "CALL"             // call
 	DECLARE          = "DECLARE"          // declare
@@ -124,6 +125,11 @@ const (
 	DEFAULT          = "DEFAULT"          // default
 	BREAK            = "BREAK"            // break
 	FALLTHROUGH      = "FALLTHROUGH"      // fallthrough
+
+	// Custom Keywords
+	// This keyword is special usecase for extensible language definition.
+	// Token is processed via custom lexer/parser definition by literal
+	CUSTOM = "CUSTOM"
 )
 
 var keywords = map[string]TokenType{

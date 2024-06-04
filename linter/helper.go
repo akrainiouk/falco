@@ -27,6 +27,7 @@ var BackendPropertyTypes = map[string]types.Type{
 	"between_bytes_timeout":    types.RTimeType,
 	"connect_timeout":          types.RTimeType,
 	"first_byte_timeout":       types.RTimeType,
+	"keepalive_time":           types.RTimeType,
 	"max_connections":          types.IntegerType,
 	"host_header":              types.StringType,
 	"always_use_host_header":   types.BoolType,
@@ -56,7 +57,7 @@ var DirectorPropertyTypes = map[string]DirectorProps{
 		Rule: DIRECTOR_PROPS_RANDOM,
 		Props: map[string]types.Type{
 			"retries": types.IntegerType,
-			"quorum":  types.StringType,
+			"quorum":  types.IntegerType,
 			"backend": types.BackendType,
 			"weight":  types.IntegerType,
 		},
@@ -72,7 +73,7 @@ var DirectorPropertyTypes = map[string]DirectorProps{
 	"hash": {
 		Rule: DIRECTOR_PROPS_HASH,
 		Props: map[string]types.Type{
-			"quorum":  types.StringType,
+			"quorum":  types.IntegerType,
 			"backend": types.BackendType,
 			"weight":  types.IntegerType,
 		},
@@ -81,7 +82,7 @@ var DirectorPropertyTypes = map[string]DirectorProps{
 	"client": {
 		Rule: DIRECTOR_PROPS_CLIENT,
 		Props: map[string]types.Type{
-			"quorum":  types.StringType,
+			"quorum":  types.IntegerType,
 			"backend": types.BackendType,
 			"weight":  types.IntegerType,
 		},
@@ -93,7 +94,7 @@ var DirectorPropertyTypes = map[string]DirectorProps{
 			"key":             types.BackendType, // TODO: need accept object or client
 			"seed":            types.IntegerType,
 			"vnodes_per_node": types.IntegerType,
-			"quorum":          types.StringType,
+			"quorum":          types.IntegerType,
 			"weight":          types.IntegerType,
 			"id":              types.StringType,
 			"backend":         types.BackendType,
@@ -342,7 +343,7 @@ func getSubroutineCallScope(s *ast.SubroutineDeclaration) int {
 	}
 
 	// If could not via subroutine name, find by annotations
-	// typically defined is module file
+	// typically defined in module file
 	scopes := 0
 	for _, a := range annotations(s.Leading) {
 		switch strings.ToUpper(a) {
@@ -367,9 +368,50 @@ func getSubroutineCallScope(s *ast.SubroutineDeclaration) int {
 		}
 	}
 	if scopes == 0 {
-		return context.RECV
+		// Unknown scope
+		return -1
 	}
 	return scopes
+}
+
+func enforceSubroutineCallScopeFromConfig(scopeNames []string) int {
+	var scopes int
+	for i := range scopeNames {
+		switch strings.ToUpper(scopeNames[i]) {
+		case "RECV":
+			scopes |= context.RECV
+		case "HASH":
+			scopes |= context.HASH
+		case "HIT":
+			scopes |= context.HIT
+		case "MISS":
+			scopes |= context.MISS
+		case "PASS":
+			scopes |= context.PASS
+		case "FETCH":
+			scopes |= context.FETCH
+		case "ERROR":
+			scopes |= context.ERROR
+		case "DELIVER":
+			scopes |= context.DELIVER
+		case "LOG":
+			scopes |= context.LOG
+		}
+	}
+	if scopes == 0 {
+		// Unknown scope
+		return -1
+	}
+	return scopes
+}
+
+func isIgnoredSubroutineInConfig(ignores []string, subroutineName string) bool {
+	for i := range ignores {
+		if ignores[i] == subroutineName {
+			return true
+		}
+	}
+	return false
 }
 
 func getFastlySubroutineScope(name string) string {
@@ -396,11 +438,10 @@ func getFastlySubroutineScope(name string) string {
 	return ""
 }
 
-func hasFastlyBoilerPlateMacro(commentText, phrase string) bool {
-	comments := strings.Split(commentText, "\n")
-	for _, c := range comments {
-		c = strings.TrimLeft(c, " */#")
-		if strings.HasPrefix(strings.ToUpper(c), phrase) {
+func hasFastlyBoilerPlateMacro(cs ast.Comments, phrase string) bool {
+	for _, c := range cs {
+		line := strings.TrimLeft(c.String(), " */#")
+		if strings.HasPrefix(strings.ToUpper(line), phrase) {
 			return true
 		}
 	}

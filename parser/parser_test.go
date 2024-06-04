@@ -16,7 +16,7 @@ func assert(t *testing.T, actual, expect interface{}) {
 
 	if diff := cmp.Diff(expect, actual,
 		// Meta structs ignores Token info
-		cmpopts.IgnoreFields(ast.Comment{}, "Token"),
+		cmpopts.IgnoreFields(ast.Comment{}, "Token", "PrefixedLineFeed"),
 		cmpopts.IgnoreFields(ast.Meta{}, "Token"),
 		cmpopts.IgnoreFields(ast.Operator{}),
 
@@ -48,7 +48,7 @@ func assert(t *testing.T, actual, expect interface{}) {
 		cmpopts.IgnoreFields(ast.InfixExpression{}),
 		cmpopts.IgnoreFields(ast.PrefixExpression{}),
 		cmpopts.IgnoreFields(ast.GroupedExpression{}),
-		cmpopts.IgnoreFields(ast.IfStatement{}, "AlternativeComments"),
+		cmpopts.IgnoreFields(ast.IfStatement{}, "Keyword"),
 		cmpopts.IgnoreFields(ast.UnsetStatement{}),
 		cmpopts.IgnoreFields(ast.AddStatement{}),
 		cmpopts.IgnoreFields(ast.CallStatement{}),
@@ -87,6 +87,66 @@ sub vcl_recv {
 	if err != nil {
 		t.Error(err)
 	}
+}
+
+func TestStringLiteralEscapes(t *testing.T) {
+	// % escapes are only expanded in double-quote strings.
+	input := `
+sub vcl_recv {
+	set req.http.v1 = "foo%20bar";
+	set req.http.v2 = {"foo%20bar"};
+}`
+	expect := &ast.VCL{
+		Statements: []ast.Statement{
+			&ast.SubroutineDeclaration{
+				Meta: ast.New(T, 0),
+				Name: &ast.Ident{
+					Meta:  ast.New(T, 0),
+					Value: "vcl_recv",
+				},
+				Block: &ast.BlockStatement{
+					Meta: ast.New(T, 1),
+					Statements: []ast.Statement{
+						&ast.SetStatement{
+							Meta: ast.New(T, 1),
+							Ident: &ast.Ident{
+								Meta:  ast.New(T, 1),
+								Value: "req.http.v1",
+							},
+							Operator: &ast.Operator{
+								Meta:     ast.New(T, 1),
+								Operator: "=",
+							},
+							Value: &ast.String{
+								Meta:  ast.New(T, 1),
+								Value: "foo bar",
+							},
+						},
+						&ast.SetStatement{
+							Meta: ast.New(T, 1),
+							Ident: &ast.Ident{
+								Meta:  ast.New(T, 1),
+								Value: "req.http.v2",
+							},
+							Operator: &ast.Operator{
+								Meta:     ast.New(T, 1),
+								Operator: "=",
+							},
+							Value: &ast.String{
+								Meta:  ast.New(T, 1),
+								Value: "foo%20bar",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	vcl, err := New(lexer.NewFromString(input)).ParseVCL()
+	if err != nil {
+		t.Errorf("%+v", err)
+	}
+	assert(t, vcl, expect)
 }
 
 func TestCommentInInfixExpression(t *testing.T) {
@@ -191,4 +251,185 @@ sub vcl_recv {
 		t.Errorf("%+v", err)
 	}
 	assert(t, vcl, expect)
+}
+
+func TestAllCommentPositions(t *testing.T) {
+	input := `
+// subroutine leading
+sub /* subroutine ident leading */ vcl_recv /* subroutine block leading */ {
+	// if leading
+	if (
+		req.http.Host &&
+		# req.http.Foo leading
+		req.http.Foo == "bar"
+	) {
+		// set leading
+		set req.http.Host = /* expression leading */ "bar" /* expression trailing */;
+		set req.http.Host = /* expression leading */ "bar" /* infix expression leading */ "baz" /* expression trailing */;
+	  // if infix
+	} // if trailing
+	// subroutine block infix
+} // subroutine trailing`
+
+	expect := &ast.VCL{
+		Statements: []ast.Statement{
+			&ast.SubroutineDeclaration{
+				Meta: ast.New(T, 0, comments("// subroutine leading")),
+				Name: &ast.Ident{
+					Meta:  ast.New(T, 0, comments("/* subroutine ident leading */"), comments("/* subroutine block leading */")),
+					Value: "vcl_recv",
+				},
+				Block: &ast.BlockStatement{
+					Meta: ast.New(T, 1, comments(), comments("// subroutine trailing"), comments("// subroutine block infix")),
+					Statements: []ast.Statement{
+						&ast.IfStatement{
+							Meta: ast.New(T, 1, comments("// if leading")),
+							Condition: &ast.InfixExpression{
+								Meta: ast.New(T, 1),
+								Left: &ast.Ident{
+									Meta:  ast.New(T, 1),
+									Value: "req.http.Host",
+								},
+								Operator: "&&",
+								Right: &ast.InfixExpression{
+									Meta: ast.New(T, 1),
+									Left: &ast.Ident{
+										Meta:  ast.New(T, 1, comments("# req.http.Foo leading")),
+										Value: "req.http.Foo",
+									},
+									Operator: "==",
+									Right: &ast.String{
+										Meta:  ast.New(T, 1),
+										Value: "bar",
+									},
+								},
+							},
+							Consequence: &ast.BlockStatement{
+								Meta: ast.New(T, 2, ast.Comments{}, comments("// if trailing"), comments("// if infix")),
+								Statements: []ast.Statement{
+									&ast.SetStatement{
+										Meta: ast.New(T, 2, comments("// set leading")),
+										Ident: &ast.Ident{
+											Meta:  ast.New(T, 2),
+											Value: "req.http.Host",
+										},
+										Operator: &ast.Operator{
+											Meta:     ast.New(T, 2),
+											Operator: "=",
+										},
+										Value: &ast.String{
+											Meta:  ast.New(T, 2, comments("/* expression leading */"), comments("/* expression trailing */")),
+											Value: "bar",
+										},
+									},
+									&ast.SetStatement{
+										Meta: ast.New(T, 2),
+										Ident: &ast.Ident{
+											Meta:  ast.New(T, 2),
+											Value: "req.http.Host",
+										},
+										Operator: &ast.Operator{
+											Meta:     ast.New(T, 2),
+											Operator: "=",
+										},
+										Value: &ast.InfixExpression{
+											Meta: ast.New(T, 2, ast.Comments{}, comments("/* expression trailing */")),
+											Left: &ast.String{
+												Meta:  ast.New(T, 2, comments("/* expression leading */"), comments("/* infix expression leading */")),
+												Value: "bar",
+											},
+											Operator: "+",
+											Right: &ast.String{
+												Meta:  ast.New(T, 2, ast.Comments{}, comments("/* expression trailing */")),
+												Value: "baz",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	vcl, err := New(lexer.NewFromString(input)).ParseVCL()
+	if err != nil {
+		t.Errorf("%+v", err)
+	}
+	assert(t, vcl, expect)
+}
+
+func TestCountPreviousEmptyLines(t *testing.T) {
+	input := `
+sub vcl_recv {
+
+
+	set req.http.Foo = "bar";
+}`
+	expect := &ast.VCL{
+		Statements: []ast.Statement{
+			&ast.SubroutineDeclaration{
+				Meta: &ast.Meta{
+					Token:              T,
+					Nest:               0,
+					PreviousEmptyLines: 0,
+					Leading:            ast.Comments{},
+					Infix:              ast.Comments{},
+					Trailing:           ast.Comments{},
+				},
+				Name: &ast.Ident{
+					Meta: &ast.Meta{
+						Token:              T,
+						Nest:               0,
+						PreviousEmptyLines: 0,
+						Leading:            ast.Comments{},
+						Infix:              ast.Comments{},
+						Trailing:           ast.Comments{},
+					},
+					Value: "vcl_recv",
+				},
+				Block: &ast.BlockStatement{
+					Meta: &ast.Meta{
+						Token:              T,
+						Nest:               1,
+						PreviousEmptyLines: 0,
+						Leading:            ast.Comments{},
+						Infix:              ast.Comments{},
+						Trailing:           ast.Comments{},
+					},
+					Statements: []ast.Statement{
+						&ast.SetStatement{
+							Meta: &ast.Meta{
+								Token:              T,
+								Nest:               1,
+								PreviousEmptyLines: 2,
+								Leading:            ast.Comments{},
+								Infix:              ast.Comments{},
+								Trailing:           ast.Comments{},
+							},
+							Ident: &ast.Ident{
+								Meta:  ast.New(T, 1),
+								Value: "req.http.Foo",
+							},
+							Operator: &ast.Operator{
+								Meta:     ast.New(T, 1),
+								Operator: "=",
+							},
+							Value: &ast.String{
+								Meta:  ast.New(T, 1),
+								Value: "bar",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	vcl, err := New(lexer.NewFromString(input)).ParseVCL()
+	if err != nil {
+		t.Errorf("%+v", err)
+	}
+	assert(t, vcl, expect)
+
 }

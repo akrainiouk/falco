@@ -11,20 +11,22 @@ type IfExpression struct {
 	Alternative Expression
 }
 
-func (i *IfExpression) expression()    {}
+func (i *IfExpression) Expression()    {}
 func (i *IfExpression) GetMeta() *Meta { return i.Meta }
 func (i *IfExpression) String() string {
 	var buf bytes.Buffer
 
-	buf.WriteString(i.LeadingInlineComment())
-	buf.WriteString("if(")
+	buf.WriteString(i.LeadingComment(inline))
+	buf.WriteString("if")
+	buf.WriteString(i.InfixComment(inline))
+	buf.WriteString("(")
 	buf.WriteString(i.Condition.String())
 	buf.WriteString(", ")
 	buf.WriteString(i.Consequence.String())
 	buf.WriteString(", ")
 	buf.WriteString(i.Alternative.String())
 	buf.WriteString(")")
-	buf.WriteString(i.TrailingComment())
+	buf.WriteString(i.TrailingComment(inline))
 
 	return buf.String()
 }

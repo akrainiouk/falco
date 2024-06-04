@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/fatih/color"
@@ -12,6 +14,7 @@ import (
 	"github.com/ysugimoto/falco/config"
 	"github.com/ysugimoto/falco/context"
 	"github.com/ysugimoto/falco/debugger"
+	"github.com/ysugimoto/falco/formatter"
 	"github.com/ysugimoto/falco/interpreter"
 	icontext "github.com/ysugimoto/falco/interpreter/context"
 	"github.com/ysugimoto/falco/lexer"
@@ -220,7 +223,7 @@ func (r *Runner) run(ctx *context.Context, main *resolver.VCL, mode RunMode) (*p
 		}
 	}
 
-	lt := linter.New()
+	lt := linter.New(r.config.Linter)
 	lt.Lint(vcl, ctx)
 
 	for k, v := range lt.Lexers() {
@@ -441,21 +444,31 @@ func (r *Runner) Simulate(rslv resolver.Resolver) error {
 
 	i := interpreter.New(options...)
 
-	// If debugger flag is on, run debugger mode
 	if sc.IsDebug {
-		return debugger.New(interpreter.New(options...)).Run(sc.Port)
+		// If debugger flag is on, run debugger mode
+		return debugger.New(i).Run(sc)
 	}
 
 	// Otherwise, simply start simulator server
 	mux := http.NewServeMux()
 	mux.Handle("/", i)
-
 	s := &http.Server{
 		Handler: mux,
 		Addr:    fmt.Sprintf(":%d", sc.Port),
 	}
-	writeln(green, "Simulator server starts on 0.0.0.0:%d", sc.Port)
-	return s.ListenAndServe()
+
+	var err error
+	if sc.KeyFile != "" && sc.CertFile != "" {
+		writeln(green, "Simulator server starts on 0.0.0.0:%d with TLS", sc.Port)
+		err = s.ListenAndServeTLS(sc.CertFile, sc.KeyFile)
+	} else {
+		writeln(green, "Simulator server starts on 0.0.0.0:%d", sc.Port)
+		err = s.ListenAndServe()
+	}
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }
 
 func (r *Runner) Test(rslv resolver.Resolver) (*tester.TestFactory, error) {
@@ -484,4 +497,33 @@ func (r *Runner) Test(rslv resolver.Resolver) (*tester.TestFactory, error) {
 	}
 	r.message(white, " Done.\n")
 	return factory, nil
+}
+
+func (r *Runner) Format(rslv resolver.Resolver) error {
+	main, err := rslv.MainVCL()
+	if err != nil {
+		return err
+	}
+	vcl, err := r.parseVCL(main.Name, main.Data)
+	if err != nil {
+		return err
+	}
+
+	formatted := formatter.New(r.config.Format).Format(vcl)
+	var w io.Writer
+	if r.config.Format.Overwrite {
+		writeln(cyan, "Formatted %s.", main.Name)
+		fp, err := os.OpenFile(main.Name, os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		defer fp.Close()
+		w = fp
+	} else {
+		w = os.Stdout
+	}
+	if _, err := io.Copy(w, formatted); err != nil {
+		return err
+	}
+	return nil
 }

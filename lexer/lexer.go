@@ -19,22 +19,32 @@ type Lexer struct {
 	file   string
 	peeks  []token.Token
 	isEOF  bool
+
+	customs map[string]struct{}
 }
 
 func New(r io.Reader, opts ...OptionFunc) *Lexer {
 	o := collect(opts)
 	l := &Lexer{
-		r:      bufio.NewReader(r),
-		line:   1,
-		buffer: new(bytes.Buffer),
-		file:   o.Filename,
+		r:       bufio.NewReader(r),
+		line:    1,
+		buffer:  new(bytes.Buffer),
+		customs: map[string]struct{}{},
 	}
+	l.file = o.Filename
+	l.customs = o.Customs
 	l.readChar()
 	return l
 }
 
 func NewFromString(input string, opts ...OptionFunc) *Lexer {
 	return New(strings.NewReader(input), opts...)
+}
+
+func (l *Lexer) RegisterCustomTokens(tokens ...string) {
+	for i := range tokens {
+		l.customs[tokens[i]] = struct{}{}
+	}
 }
 
 func (l *Lexer) readChar() {
@@ -209,6 +219,7 @@ func (l *Lexer) NextToken() token.Token {
 		if l.peekChar() == '=' {
 			l.readChar()
 			t = newToken(token.ADDITION, l.char, line, index)
+			t.Literal = "+="
 		} else {
 			// NOTE: The "+" character is not used for arithmetic operator in VCL,
 			// just use for explicit string concatenation.
@@ -252,6 +263,8 @@ func (l *Lexer) NextToken() token.Token {
 			l.readChar()
 			t = newToken(token.REMAINDER, l.char, line, index)
 			t.Literal = "%="
+		} else {
+			t = newToken(token.PERCENT, l.char, line, index)
 		}
 	case ':':
 		t = newToken(token.COLON, l.char, line, index)
@@ -336,7 +349,12 @@ func (l *Lexer) NextToken() token.Token {
 				}
 			default:
 				t.Literal = literal
-				t.Type = token.LookupIdent(t.Literal)
+				// If custom token found, mark as CUSTOM
+				if _, ok := l.customs[literal]; ok {
+					t.Type = token.CUSTOM
+				} else {
+					t.Type = token.LookupIdent(t.Literal)
+				}
 				t.Line = line
 				t.Position = index
 				t.File = l.file
@@ -361,11 +379,6 @@ func (l *Lexer) NextToken() token.Token {
 			case 's', 'h', 'd', 'y': // second, hour, day, year
 				t = newToken(token.RTIME, l.char, line, index)
 				t.Literal = num + string(l.char)
-			case '%':
-				// Also "%" is special character which indicates percentage.
-				// Usually it will be used on director.quorum field value and it's okay to treat as string token.
-				t = newToken(token.STRING, l.char, line, index)
-				t.Literal = num + "%"
 			default:
 				// If literal contains ".", token should be FLOAT
 				if strings.Count(num, ".") == 1 {
@@ -394,23 +407,12 @@ func (l *Lexer) skipWhitespace() {
 }
 
 func (l *Lexer) readString() string {
-	var isEscape bool
 	var rs []rune
 	l.readChar()
 	for {
-		if (l.char == '"' && !isEscape) || l.char == 0x00 {
+		if l.char == '"' || l.char == 0x00 {
 			break
 		}
-		// escape sequence
-		if l.char == 0x5C {
-			if l.peekChar() != 0x5C {
-				isEscape = true
-			}
-			rs = append(rs, l.char)
-			l.readChar()
-			continue
-		}
-		isEscape = false
 		rs = append(rs, l.char)
 		l.readChar()
 	}
@@ -419,7 +421,6 @@ func (l *Lexer) readString() string {
 }
 
 func (l *Lexer) readBracketString() string {
-	var isEscape bool
 	var rs []rune
 	l.readChar()
 	for {
@@ -427,32 +428,13 @@ func (l *Lexer) readBracketString() string {
 			break
 		}
 		if l.char == '"' {
-			if isEscape {
-				isEscape = false
-				rs = append(rs, l.char)
-				l.readChar()
-				continue
-			}
 			if l.peekChar() == '}' {
 				l.readChar()
 				break
 			}
 		}
-		// escape sequence
-		if l.char == 0x5C {
-			if l.peekChar() != 0x5C {
-				isEscape = true
-			}
-			l.readChar()
-			continue
-		}
-
-		if isEscape {
-			rs = append(rs, '\\')
-		}
 		rs = append(rs, l.char)
 		l.readChar()
-		isEscape = false
 	}
 
 	return string(rs)

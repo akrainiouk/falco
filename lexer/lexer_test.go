@@ -100,7 +100,7 @@ sub vcl_recv {
 		{Type: token.LF, Literal: "\n"},
 		{Type: token.STRING, Literal: " foobar "},
 		{Type: token.LF, Literal: "\n"},
-		{Type: token.STRING, Literal: " foo\"bar "},
+		{Type: token.STRING, Literal: ` foo\"bar `},
 		{Type: token.LF, Literal: "\n"},
 
 		// import
@@ -180,7 +180,8 @@ sub vcl_recv {
 		{Type: token.DOT, Literal: "."},
 		{Type: token.IDENT, Literal: "quorum"},
 		{Type: token.ASSIGN, Literal: "="},
-		{Type: token.STRING, Literal: "20%"},
+		{Type: token.INT, Literal: "20"},
+		{Type: token.PERCENT, Literal: "%"},
 		{Type: token.SEMICOLON, Literal: ";"},
 		{Type: token.LF, Literal: "\n"},
 		{Type: token.LEFT_BRACE, Literal: "{"},
@@ -250,7 +251,7 @@ sub vcl_recv {
 
 		{Type: token.SET, Literal: "set"},
 		{Type: token.IDENT, Literal: "var.foo"},
-		{Type: token.ADDITION, Literal: "="},
+		{Type: token.ADDITION, Literal: "+="},
 		{Type: token.INT, Literal: "1"},
 		{Type: token.SEMICOLON, Literal: ";"},
 		{Type: token.LF, Literal: "\n"},
@@ -675,5 +676,25 @@ func TestPeekToken(t *testing.T) {
 	tok = l.NextToken()
 	if diff := cmp.Diff(token.Token{Type: token.EOF}, tok, cmpopts.IgnoreFields(token.Token{}, "Literal", "Line", "Position", "Offset")); diff != "" {
 		t.Errorf(`Assertion failed, diff= %s`, diff)
+	}
+}
+
+func TestCustomToken(t *testing.T) {
+	input := `describe foo {}`
+	l := NewFromString(input, WithCustomTokens("describe"))
+
+	expects := []token.Token{
+		{Type: token.CUSTOM, Literal: "describe", Line: 1, Position: 1},
+		{Type: token.IDENT, Literal: "foo", Line: 1, Position: 10},
+		{Type: token.LEFT_BRACE, Literal: "{", Line: 1, Position: 14},
+		{Type: token.RIGHT_BRACE, Literal: "}", Line: 1, Position: 15},
+		{Type: token.EOF, Literal: "", Line: 1, Position: 16},
+	}
+	for i, tt := range expects {
+		tok := l.NextToken()
+
+		if diff := cmp.Diff(tt, tok, cmpopts.IgnoreFields(token.Token{}, "Offset")); diff != "" {
+			t.Errorf(`Tests[%d] failed, diff= %s`, i, diff)
+		}
 	}
 }

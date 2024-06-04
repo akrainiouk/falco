@@ -2,21 +2,20 @@ package variable
 
 import (
 	"bytes"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"math"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"crypto/md5"
-	"crypto/sha256"
-	"encoding/base64"
-	"net/http"
-	"net/url"
-	"path/filepath"
 
 	"github.com/avct/uasurfer"
 	"github.com/pkg/errors"
@@ -37,6 +36,17 @@ func NewAllScopeVariables(ctx *context.Context) *AllScopeVariables {
 	return &AllScopeVariables{
 		ctx: ctx,
 	}
+}
+
+// return unescaped path value from the specified URL
+// this function makes the best effort to get the raw path
+// even when standard EscapedPath() chooses escaped version
+func getRawUrlPath(u *url.URL) string {
+	result := u.EscapedPath()
+	if u.RawPath != "" && result != u.RawPath {
+		result = u.RawPath
+	}
+	return result
 }
 
 // nolint: funlen,gocognit,gocyclo
@@ -499,7 +509,7 @@ func (v *AllScopeVariables) Get(s context.Scope, name string) (value.Value, erro
 		}
 		return &value.String{Value: u}, nil
 	case REQ_URL:
-		u := req.URL.EscapedPath()
+		u := getRawUrlPath(req.URL)
 		if v := req.URL.RawQuery; v != "" {
 			u += "?" + v
 		}
@@ -509,19 +519,19 @@ func (v *AllScopeVariables) Get(s context.Scope, name string) (value.Value, erro
 		return &value.String{Value: u}, nil
 	case REQ_URL_BASENAME:
 		return &value.String{
-			Value: filepath.Base(req.URL.EscapedPath()),
+			Value: filepath.Base(getRawUrlPath(req.URL)),
 		}, nil
 	case REQ_URL_DIRNAME:
 		return &value.String{
-			Value: filepath.Dir(req.URL.EscapedPath()),
+			Value: filepath.Dir(getRawUrlPath(req.URL)),
 		}, nil
 	case REQ_URL_EXT:
-		ext := filepath.Ext(req.URL.EscapedPath())
+		ext := filepath.Ext(getRawUrlPath(req.URL))
 		return &value.String{
 			Value: strings.TrimPrefix(ext, "."),
 		}, nil
 	case REQ_URL_PATH:
-		return &value.String{Value: req.URL.EscapedPath()}, nil
+		return &value.String{Value: getRawUrlPath(req.URL)}, nil
 	case REQ_URL_QS:
 		return &value.String{Value: req.URL.RawQuery}, nil
 	case REQ_VCL:
@@ -546,11 +556,11 @@ func (v *AllScopeVariables) Get(s context.Scope, name string) (value.Value, erro
 
 	// Fixed values
 	case SERVER_DATACENTER:
-		return &value.String{Value: "FALCO"}, nil
+		return &value.String{Value: FALCO_DATACENTER}, nil
 	case SERVER_HOSTNAME:
-		return &value.String{Value: "cache-localsimulator"}, nil
+		return &value.String{Value: FALCO_SERVER_HOSTNAME}, nil
 	case SERVER_IDENTITY:
-		return &value.String{Value: "cache-localsimulator"}, nil
+		return &value.String{Value: FALCO_SERVER_HOSTNAME}, nil
 	case SERVER_REGION:
 		return &value.String{Value: "US"}, nil
 	case STALE_EXISTS:
@@ -653,6 +663,19 @@ func (v *AllScopeVariables) getFromRegex(name string) value.Value {
 			Value: val,
 		}
 	}
+
+	if match := backendConnectionsOpenRegex.FindStringSubmatch(name); match != nil {
+		return &value.Integer{}
+	}
+
+	if match := backendConnectionsUsedRegex.FindStringSubmatch(name); match != nil {
+		return &value.Integer{}
+	}
+
+	if match := backendHealthyRegex.FindStringSubmatch(name); match != nil {
+		return &value.Boolean{Value: true}
+	}
+
 	return nil
 }
 
@@ -718,7 +741,7 @@ func (v *AllScopeVariables) Set(s context.Scope, name, operator string, val valu
 	case REQ_REQUEST:
 		return v.Set(s, "req.method", operator, val)
 	case REQ_URL:
-		u := v.ctx.Request.URL.EscapedPath()
+		u := getRawUrlPath(v.ctx.Request.URL)
 		if query := v.ctx.Request.URL.RawQuery; query != "" {
 			u += "?" + query
 		}
