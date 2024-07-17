@@ -22,6 +22,9 @@ func (t *TestCase) MarshalJSON() ([]byte, error) {
 		Group string `json:"group,omitempty"`
 		Scope string `json:"scope"`
 		Time  int64  `json:"elapsed_time"`
+		File     *string `json:"file,omitempty"`
+		Line     *int    `json:"line,omitempty"`
+		Position *int    `json:"position,omitempty"`
 	}{
 		Name:  t.Name,
 		Group: t.Group,
@@ -32,8 +35,14 @@ func (t *TestCase) MarshalJSON() ([]byte, error) {
 		switch e := t.Error.(type) {
 		case *errors.AssertionError:
 			v.Error = e.Message
+			v.File = &e.Token.File
+			v.Line = &e.Token.Line
+			v.Position = &e.Token.Position
 		case *errors.TestingError:
 			v.Error = e.Message
+			v.File = &e.Token.File
+			v.Line = &e.Token.Line
+			v.Position = &e.Token.Position
 		default:
 			v.Error = e.Error()
 		}
