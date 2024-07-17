@@ -27,6 +27,8 @@ type OverrideBackend struct {
 	Unhealthy bool   `yaml:"unhealthy" default:"false"`
 }
 
+type EdgeDictionary map[string]string
+
 // Linter configuration
 type LinterConfig struct {
 	VerboseLevel            string              `yaml:"verbose"`
@@ -39,13 +41,17 @@ type LinterConfig struct {
 
 // Simulator configuration
 type SimulatorConfig struct {
-	Port         int      `cli:"p,port" yaml:"port" default:"3124"`
-	IsDebug      bool     `cli:"debug"` // Enable only in CLI option
-	IncludePaths []string // Copy from root field
+	Port            int      `cli:"p,port" yaml:"port" default:"3124"`
+	IsDebug         bool     `cli:"debug"` // Enable only in CLI option
+	IsProxyResponse bool     `cli:"proxy"` // Enable only in CLI option
+	IncludePaths    []string // Copy from root field
 
 	// HTTPS related configuration. If both fields are spcified, simulator will serve with HTTPS
 	KeyFile  string `cli:"key" yaml:"key_file"`
 	CertFile string `cli:"cert" yaml:"cert_file"`
+
+	// Inject Edge Dictionary items
+	OverrideEdgeDictionaries map[string]EdgeDictionary `yaml:"edge_dictionary"`
 
 	// Override Request configuration
 	OverrideRequest *RequestConfig
@@ -97,7 +103,6 @@ type FormatConfig struct {
 type Config struct {
 	// Root configurations
 	IncludePaths []string `cli:"I,include_path" yaml:"include_paths"`
-	Transforms   []string `cli:"t,transformer" yaml:"transformers"`
 	Help         bool     `cli:"h,help"`
 	Version      bool     `cli:"V"`
 	Remote       bool     `cli:"r,remote" yaml:"remote"`

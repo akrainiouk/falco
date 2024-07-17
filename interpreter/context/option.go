@@ -49,3 +49,15 @@ func WithOverrideHost(host string) Option {
 		c.OriginalHost = host
 	}
 }
+
+func WithInjectEdgeDictionaries(ed map[string]config.EdgeDictionary) Option {
+	return func(c *Context) {
+		c.InjectEdgeDictionaries = ed
+	}
+}
+
+func WithActualResponse(is bool) Option {
+	return func(c *Context) {
+		c.IsActualResponse = is
+	}
+}

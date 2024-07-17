@@ -1,6 +1,9 @@
 package linter
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestLintAclDeclaration(t *testing.T) {
 	t.Run("pass", func(t *testing.T) {
@@ -60,7 +63,7 @@ backend foo {
     .request = "GET / HTTP/1.1";
     .threshold = 1;
     .timeout = 2s;
-    .window = 4; 
+    .window = 4;
   }
 }`
 		assertNoError(t, input)
@@ -76,8 +79,16 @@ backend foo-bar {
 
 	t.Run("invalid type", func(t *testing.T) {
 		input := `
-backend foo-bar {
+backend foo {
   .host = 1s;
+}`
+		assertError(t, input)
+	})
+
+	t.Run("invalid share_key", func(t *testing.T) {
+		input := `
+backend foo {
+  .share_key = "example.com";
 }`
 		assertError(t, input)
 	})
@@ -294,7 +305,7 @@ sub example {
 	t.Run("pass with Fastly reserved subroutine boilerplate comment", func(t *testing.T) {
 		input := `
 sub vcl_recv {
-	# FASTLY recv
+	#FASTLY recv
 	set req.http.Host = "example.com";
 }`
 		assertNoError(t, input)
@@ -303,7 +314,7 @@ sub vcl_recv {
 sub vcl_log {
 	# FASTLY log
 }`
-		assertNoError(t, input)
+		assertError(t, input)
 	})
 
 	t.Run("invalid subroutine name", func(t *testing.T) {
@@ -351,12 +362,12 @@ sub example {
 }
 
 sub vcl_log {
-    # FASTLY log
+    #FASTLY log
 	call example;
 }
 
 sub vcl_recv {
-# FASTLY recv
+#FASTLY recv
 call example;
 }
 `
@@ -557,4 +568,57 @@ sub test_sub{
 `
 		assertError(t, input)
 	})
+}
+
+func TestFastlyBoilerPlateMacro(t *testing.T) {
+	tests := []struct {
+		name    string
+		macro   string
+		isError bool
+	}{
+		{
+			name:    "Disallow slash comment sign",
+			macro:   "//FASTLY RECV",
+			isError: true,
+		},
+		{
+			name:    "Disallow double or more comment sign",
+			macro:   "###FASTLY RECV",
+			isError: true,
+		},
+		{
+			name:    "Disallow lowercase fastly string",
+			macro:   "#fastly RECV",
+			isError: true,
+		},
+		{
+			name:  "Allow uppercase scope",
+			macro: "#FASTLY RECV",
+		},
+		{
+			name:  "Allow lowercase scope",
+			macro: "#FASTLY recv",
+		},
+		{
+			name:  "Allow extra comments",
+			macro: "#FASTLY RECV foo bar baz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := fmt.Sprintf(`
+sub vcl_recv {
+%s
+set req.http.Foo = "bar";
+}`,
+				tt.macro,
+			)
+			if tt.isError {
+				assertError(t, input)
+			} else {
+				assertNoError(t, input)
+			}
+		})
+	}
 }

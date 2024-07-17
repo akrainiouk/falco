@@ -1,3 +1,28 @@
+## v1.9.1
+
+- strict macro linting [#336](https://github.com/ysugimoto/falco/336) (@ysugimoto)
+- feat(formatter): prevent indentation of #FASTLY macros [#335](https://github.com/ysugimoto/falco/335) (@acme)
+- fix(formatter): remove space between return and parenthesis [#334](https://github.com/ysugimoto/falco/334) (@acme)
+- Add feature to disable only specific lint rules with ignore comment [#333](https://github.com/ysugimoto/falco/333) (@nodaguti)
+- Set exit code to 1 when there are one or more lint errors [#332](https://github.com/ysugimoto/falco/332) (@nodaguti)
+- Add extra format check for backend.share_key [#331](https://github.com/ysugimoto/falco/331) (@nodaguti)
+- Fix broken result message of tester and use exactly the same format for both passed and failed tests [#330](https://github.com/ysugimoto/falco/330) (@nodaguti)
+
+## v1.9.0
+
+- Arbitrary process flow marking [#327](https://github.com/ysugimoto/falco/pull/327) (@ysugimoto)
+- Actual proxy behavior in simulator [#328](https://github.com/ysugimoto/falco/pull/328) (@ysugimoto)
+- Reduce memory allocation using pool [#329](https://github.com/ysugimoto/falco/pull/329) (@ysugimoto)
+
+## v1.8.0
+
+- HTTPS server Support [#319](https://github.com/ysugimoto/falco/pull/319) (@ysugimoto)
+- Support fastly.try_select_shield new function [#320](https://github.com/ysugimoto/falco/pull/320) (@ysugimoto)
+- Injectable Edge Dictionary on Simulator [#321](https://github.com/ysugimoto/falco/pull/321) (@ysugimoto)
+- Subroutine mocking feature [#322](https://github.com/ysugimoto/falco/pull/322) (@ysugimoto)
+- Bump versions on CI [#323](https://github.com/ysugimoto/falco/pull/323) (@ysugimoto)
+- Implement plugin system [#324](https://github.com/ysugimoto/falco/pull/324) (@ysugimoto)
+
 ## v1.7.0
 
 - Feature/testing syntax [#312](https://github.com/ysugimoto/falco/pull/312) (@ysugimoto)

@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/ysugimoto/falco/ast"
 	"github.com/ysugimoto/falco/config"
 )
+
+var bufferPool = sync.Pool{
+	New: func() any {
+		return &bytes.Buffer{}
+	},
+}
 
 // Formatter is struct for formatting input VCL.
 type Formatter struct {
@@ -98,8 +105,10 @@ func (f *Formatter) Format(vcl *ast.VCL) io.Reader {
 		decls.Sort()
 	}
 
-	var buf bytes.Buffer
+	buf := bufferPool.Get().(*bytes.Buffer) // nolint:errcheck
+	defer bufferPool.Put(buf)
 
+	buf.Reset()
 	for i, decl := range decls {
 		if i > 0 {
 			buf.WriteString("\n")
@@ -137,13 +146,18 @@ func (f *Formatter) formatComment(comments ast.Comments, sep string, level int) 
 		return ""
 	}
 
-	var buf bytes.Buffer
+	buf := bufferPool.Get().(*bytes.Buffer) // nolint:errcheck
+	defer bufferPool.Put(buf)
 
+	buf.Reset()
 	for i := range comments {
 		if comments[i].PreviousEmptyLines > 0 {
 			buf.WriteString("\n")
 		}
-		buf.WriteString(f.indent(level))
+		// #FASTLY macros are not indented
+		if !strings.HasPrefix(comments[i].String(), "#FASTLY") {
+			buf.WriteString(f.indent(level))
+		}
 		switch f.conf.CommentStyle {
 		case config.CommentStyleSharp, config.CommentStyleSlash:
 			r := '#' // default as sharp style comment

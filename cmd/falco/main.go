@@ -156,11 +156,7 @@ func main() {
 				}
 			}
 		}
-		runner, err := NewRunner(c, fetcher)
-		if err != nil {
-			writeln(red, err.Error())
-			os.Exit(1)
-		}
+		runner := NewRunner(c, fetcher)
 
 		var exitErr error
 		switch action {
@@ -208,36 +204,26 @@ func runLint(runner *Runner, rslv resolver.Resolver) error {
 	write(yellow, ":exclamation:%d warnings, ", result.Warnings)
 	writeln(cyan, ":speaker:%d recommendations.", result.Infos)
 
-	// Display message corresponds to runner result
-	if result.Errors == 0 {
-		switch {
-		case result.Warnings > 0:
-			writeln(white, "VCL lint warnings encountered, but things should run OK :thumbsup:")
-			if runner.level < LevelWarning {
-				writeln(white, "Run command with the -v option to output warnings.")
-			}
-		case result.Infos > 0:
-			writeln(green, "VCL looks good :sparkles: Some recommendations are available :thumbsup:")
-			if runner.level < LevelInfo {
-				writeln(white, "Run command with the -vv option to output recommendations.")
-			}
-		default:
-			writeln(green, "VCL looks great :sparkles:")
-		}
-	}
-
-	// if lint error is not zero, stop process
 	if result.Errors > 0 {
-		if len(runner.transformers) > 0 {
-			writeln(white, "Program aborted. Please fix lint errors before transforming.")
-		}
 		return ErrExit
 	}
 
-	if err := runner.Transform(result.Vcl); err != nil {
-		writeln(red, err.Error())
-		return ErrExit
+	// Display message corresponds to runner result
+	switch {
+	case result.Warnings > 0:
+		writeln(white, "VCL lint warnings encountered, but things should run OK :thumbsup:")
+		if runner.level < LevelWarning {
+			writeln(white, "Run command with the -v option to output warnings.")
+		}
+	case result.Infos > 0:
+		writeln(green, "VCL looks good :sparkles: Some recommendations are available :thumbsup:")
+		if runner.level < LevelInfo {
+			writeln(white, "Run command with the -vv option to output recommendations.")
+		}
+	default:
+		writeln(green, "VCL looks great :sparkles:")
 	}
+
 	return nil
 }
 
@@ -355,12 +341,12 @@ func runTest(runner *Runner, rslv resolver.Resolver) error {
 
 		for _, c := range r.Cases {
 			totalCount++
+			var prefix string
+			if c.Group != "" {
+				prefix = c.Group + " › "
+			}
 			if c.Error != nil {
-				var prefix string
-				if c.Group != "" {
-					prefix = c.Group + " › "
-				}
-				writeln(redBold, "%s●  [%s] %s%s\n", indent(1), prefix, c.Scope, c.Name)
+				writeln(redBold, "%s● [%s] %s%s\n", indent(1), c.Scope, prefix, c.Name)
 				writeln(red, "%s%s", indent(2), c.Error.Error())
 				switch e := c.Error.(type) {
 				case *ife.AssertionError:
@@ -374,7 +360,7 @@ func runTest(runner *Runner, rslv resolver.Resolver) error {
 				writeln(white, "")
 				failedCount++
 			} else {
-				writeln(green, "%s✓ [%s] %s", indent(1), c.Scope, c.Name)
+				writeln(green, "%s✓ [%s] %s%s", indent(1), c.Scope, prefix, c.Name)
 				passedCount++
 			}
 		}

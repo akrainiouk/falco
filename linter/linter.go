@@ -21,8 +21,6 @@ type Linter struct {
 	includexLexers map[string]*lexer.Lexer
 	ignore         *ignore
 	conf           *config.LinterConfig
-
-	customLinters map[string]CustomLinter
 }
 
 func New(c *config.LinterConfig, opts ...optionFunc) *Linter {
@@ -43,7 +41,7 @@ func (l *Linter) Lexers() map[string]*lexer.Lexer {
 
 func (l *Linter) Error(err error) {
 	if le, ok := err.(*LintError); ok {
-		if !l.ignore.IsEnable() {
+		if !l.ignore.IsEnable(le.Rule) {
 			l.Errors = append(l.Errors, le)
 		}
 	} else {
@@ -175,6 +173,11 @@ func (l *Linter) lintUnusedGotos(ctx *context.Context) {
 }
 
 func (l *Linter) lint(node ast.Node, ctx *context.Context) types.Type {
+	// Custom linter can be called only in ast.Statement
+	if stmt, ok := node.(ast.Statement); ok {
+		l.customLint(stmt)
+	}
+
 	switch t := node.(type) {
 	// Root program
 	case *ast.VCL:
@@ -297,7 +300,7 @@ func (l *Linter) lintVCL(vcl *ast.VCL, ctx *context.Context) types.Type {
 func (l *Linter) lintStatement(s ast.Statement, ctx *context.Context) {
 	// Any statements may have ignoring comments so we do setup and teardown
 	l.ignore.SetupStatement(s.GetMeta())
-	defer l.ignore.TeardownStatement()
+	defer l.ignore.TeardownStatement(s.GetMeta())
 	l.lint(s, ctx)
 }
 
@@ -546,8 +549,6 @@ func (l *Linter) factoryRootDeclarations(statements []ast.Statement, ctx *contex
 }
 
 func (l *Linter) lintFastlyBoilerPlateMacro(sub *ast.SubroutineDeclaration, ctx *context.Context, scope string) {
-	phrase := strings.ToUpper("FASTLY " + scope)
-
 	// prepare scoped snippets
 	scopedSnippets, ok := ctx.Snippets().ScopedSnippets[scope]
 	if !ok {
@@ -556,7 +557,7 @@ func (l *Linter) lintFastlyBoilerPlateMacro(sub *ast.SubroutineDeclaration, ctx 
 
 	var resolved []ast.Statement
 	// visit all statement comments and find "FASTLY [phase]" comment
-	if hasFastlyBoilerPlateMacro(sub.Block.Infix, phrase) {
+	if hasFastlyBoilerPlateMacro(sub.Block.Infix, scope) {
 		for _, s := range scopedSnippets {
 			resolved = append(resolved, l.loadSnippetVCL("snippet::"+s.Name, s.Data)...)
 		}
@@ -566,7 +567,7 @@ func (l *Linter) lintFastlyBoilerPlateMacro(sub *ast.SubroutineDeclaration, ctx 
 
 	var found bool
 	for _, stmt := range sub.Block.Statements {
-		if hasFastlyBoilerPlateMacro(stmt.GetMeta().Leading, phrase) && !found {
+		if hasFastlyBoilerPlateMacro(stmt.GetMeta().Leading, scope) && !found {
 			// Macro found but embedding snippets should do only once
 			for _, s := range scopedSnippets {
 				resolved = append(resolved, l.loadSnippetVCL("snippet::"+s.Name, s.Data)...)
@@ -587,7 +588,7 @@ func (l *Linter) lintFastlyBoilerPlateMacro(sub *ast.SubroutineDeclaration, ctx 
 		Severity: WARNING,
 		Token:    sub.GetMeta().Token,
 		Message: fmt.Sprintf(
-			`Subroutine "%s" is missing Fastly boilerplate comment "%s" inside definition`, sub.Name.Value, phrase,
+			`Subroutine "%s" is missing Fastly boilerplate comment "#FASTLY %s" inside definition`, sub.Name.Value, strings.ToUpper(scope),
 		),
 	}
 	l.Error(err.Match(SUBROUTINE_BOILERPLATE_MACRO))
