@@ -22,9 +22,11 @@ const (
 )
 
 type OverrideBackend struct {
-	Host      string `yaml:"host"`
-	SSL       bool   `yaml:"ssl" default:"true"`
-	Unhealthy bool   `yaml:"unhealthy" default:"false"`
+	Host       string `yaml:"host"`
+	Port       int    `yaml:"port"`
+	HostHeader string `yaml:"host_header"`
+	SSL        bool   `yaml:"ssl" default:"true"`
+	Unhealthy  bool   `yaml:"unhealthy" default:"false"`
 }
 
 type EdgeDictionary map[string]string
