@@ -41,6 +41,10 @@ func (c *Cache) Set(hash string, item *CacheItem) {
 	c.storage.Store(hash, item)
 }
 
+func (c *Cache) Delete(hash string) {
+	c.storage.Delete(hash)
+}
+
 func (c *Cache) Get(hash string) *CacheItem {
 	// Load and cast to *CacheItem
 	v, ok := c.storage.Load(hash)

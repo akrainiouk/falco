@@ -338,7 +338,9 @@ func (i *Interpreter) ProcessRecv() error {
 		if err = i.ProcessHash(); err != nil {
 			return errors.WithStack(err)
 		}
-		if v := i.cache.Get(i.ctx.RequestHash.Value); v != nil {
+		if i.ctx.Request.Method == "PURGE" {
+			i.cache.Delete(i.ctx.RequestHash.Value)
+		} else if v := i.cache.Get(i.ctx.RequestHash.Value); v != nil {
 			i.process.Cached = true
 			i.ctx.State = "HIT"
 			i.ctx.CacheHitItem = v
