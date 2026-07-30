@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gobwas/glob"
-	"github.com/k0kubun/pp"
 	"github.com/pkg/errors"
 	"github.com/ysugimoto/falco/v2/ast"
 	"github.com/ysugimoto/falco/v2/config"
@@ -87,7 +86,7 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 		}
 	}
 
-	// host may be overrided by config
+	// host may be overridden by config
 	var host string
 	if overrideBackend != nil {
 		host = overrideBackend.Host
@@ -126,7 +125,11 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 	if err != nil {
 		return nil, errors.WithStack(err)
 	} else if hostHeader != nil {
-		req.Header.Set("Host", *hostHeader)
+		req.Host = *hostHeader
+	} else {
+		// Preserve the client-supplied Host (including any VCL modifications
+		// applied via `set req.http.host = ...`) on the backend request.
+		req.Host = i.ctx.Request.Header.Get("Host")
 	}
 	return req, nil
 }
@@ -134,9 +137,8 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 func (i *Interpreter) getOriginHostHeader(backend *value.Backend, defaultHost string) (*string, error) {
 	// Check backend is dynamic
 	if v, err := i.getBackendProperty(backend.Value.Properties, "dynamic"); err != nil {
-		pp.Println("dynamic get error")
 		return nil, errors.WithStack(err)
-	} else if v != nil && v.Type() == value.BooleanType {
+	} else if v != nil && v.Type() == value.BooleanType && value.Unwrap[*value.Boolean](v).Value {
 		// If backend is dynamic, lookup .host_header field value
 		if vv, err := i.getBackendProperty(backend.Value.Properties, "host_header"); err != nil {
 			return nil, errors.WithStack(err)
