@@ -222,13 +222,25 @@ func TestProcessBackends(t *testing.T) {
 	t.Run("Uninitialized req.backend errors instead of crashing", func(t *testing.T) {
 		// No backend is ever determined, so the request must fail with a
 		// runtime error rather than panicking on the uninitialized backend.
-		vcl := `
-			sub vcl_recv {
-              declare local var.backend BACKEND;
-              set req.backend = var.backend;
-			}
-        `
-		assertInterpreter(t, vcl, context.RecvScope, map[string]value.Value{}, true)
+		vcls := []string{
+			`sub vcl_recv {
+			  declare local var.backend BACKEND;
+			  set req.backend = var.backend;
+			  return (lookup);
+			}`,
+			`sub vcl_recv {
+			 declare local var.backend BACKEND;
+			 set req.backend = var.backend;
+			 return (pass);
+			}`,
+			`sub vcl_pass {
+  			  declare local var.backend BACKEND;
+			  set req.backend = var.backend;
+            }`,
+		}
+		for _, vcl := range vcls {
+			assertInterpreter(t, vcl, context.RecvScope, map[string]value.Value{}, true)
+		}
 	})
 
 }

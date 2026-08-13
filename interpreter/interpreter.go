@@ -522,7 +522,7 @@ func (i *Interpreter) ProcessHit() error {
 func (i *Interpreter) ProcessPass() error {
 	i.SetScope(context.PassScope)
 
-	if i.ctx.Backend == nil {
+	if i.ctx.Backend == nil || (i.ctx.Backend.Value == nil && i.ctx.Backend.Director == nil) {
 		return exception.Runtime(nil, "No backend determined in PASS")
 	}
 
@@ -575,7 +575,7 @@ func (i *Interpreter) ProcessPass() error {
 func (i *Interpreter) ProcessFetch() error {
 	i.SetScope(context.FetchScope)
 
-	if i.ctx.BackendRequest == nil {
+	if i.ctx.BackendRequest == nil || i.ctx.Backend == nil || (i.ctx.Backend.Value == nil && i.ctx.Backend.Director == nil) {
 		return exception.System("No backend determined on FETCH")
 	}
 
