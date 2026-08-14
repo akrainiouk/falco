@@ -27,8 +27,7 @@ backend example {
 `, url.Hostname(), url.Port(),
 	)
 }
-
-func assertInterpreter(t *testing.T, vcl string, scope context.Scope, assertions map[string]value.Value, isError bool, opts ...context.Option) {
+func runInterpreter(vcl string, opts ...context.Option) (*Interpreter, *httptest.ResponseRecorder, error) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -38,8 +37,7 @@ func assertInterpreter(t *testing.T, vcl string, scope context.Scope, assertions
 
 	parsed, err := url.Parse(server.URL)
 	if err != nil {
-		t.Errorf("Test server URL parsing error: %s", err)
-		return
+		return nil, nil, err
 	}
 
 	vcl = defaultBackend(parsed) + "\n" + vcl
@@ -50,33 +48,41 @@ func assertInterpreter(t *testing.T, vcl string, scope context.Scope, assertions
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "http://localhost", nil)
 	ip.ServeHTTP(rec, req)
+	return ip, rec, nil
+}
 
-	if rec.Result().StatusCode != 200 {
-		if !isError {
-			t.Errorf("Interpreter responds not 200 code")
-			t.FailNow()
-		}
+func assertInterpreter(t *testing.T, vcl string, scope context.Scope, assertions map[string]value.Value, isError bool, opts ...context.Option) {
+	if ip, rec, err := runInterpreter(vcl, opts...); err != nil {
+		t.Errorf("Failed to run interpreter: %s", err)
 		return
-	}
-
-	for name, val := range assertions {
-		v, err := ip.vars.Get(scope, name)
-		if err != nil {
-			t.Errorf("Value get error: %s", err)
-			return
-		} else if v == nil || v == value.Null {
-			t.Errorf("Value %s is nil", name)
+	} else {
+		if rec.Result().StatusCode != 200 {
+			if !isError {
+				t.Errorf("Interpreter responds not 200 code")
+				t.FailNow()
+			}
 			return
 		}
-		if diff := cmp.Diff(val, v); diff != "" {
-			t.Errorf("Value assertion error for '%s', diff: %s", name, diff)
-		}
-	}
 
-	if isError && ip.process.Error == nil {
-		t.Error("Expected error but got nil")
-	} else if !isError && ip.process.Error != nil {
-		t.Errorf("Did not expect error but got %s", ip.process.Error)
+		for name, val := range assertions {
+			v, err := ip.vars.Get(scope, name)
+			if err != nil {
+				t.Errorf("Value get error: %s", err)
+				return
+			} else if v == nil || v == value.Null {
+				t.Errorf("Value %s is nil", name)
+				return
+			}
+			if diff := cmp.Diff(val, v); diff != "" {
+				t.Errorf("Value assertion error for '%s', diff: %s", name, diff)
+			}
+		}
+
+		if isError && ip.process.Error == nil {
+			t.Error("Expected error but got nil")
+		} else if !isError && ip.process.Error != nil {
+			t.Errorf("Did not expect error but got %s", ip.process.Error)
+		}
 	}
 }
 
@@ -364,5 +370,44 @@ func TestCustomStatusTextPreserved(t *testing.T) {
 				t.Errorf("Expected body %q, got %q", tt.expectedBody, string(body))
 			}
 		})
+	}
+}
+
+func TestBackendTrackingInFlows(t *testing.T) {
+	vcl := `
+        backend bknd1 { .host = "host1"; .port = "80"; }
+		sub vcl_recv { set req.backend = bknd1; }
+		sub vcl_hash { set req.backend = example; }
+        sub vcl_miss { }
+	`
+	if ip, _, err := runInterpreter(vcl); err != nil {
+		t.Errorf("Failed to run interpreter: %s", err)
+	} else {
+		expected := []struct {
+			Subroutine string
+			Backend    string
+		}{
+			{
+				Subroutine: "vcl_recv",
+				Backend:    "example",
+			},
+			{
+				Subroutine: "vcl_hash",
+				Backend:    "bknd1",
+			},
+			{
+				Subroutine: "vcl_miss",
+				Backend:    "example",
+			},
+		}
+		flows := ip.process.Flows
+		for i, e := range expected {
+			if flows[i].Subroutine != e.Subroutine {
+				t.Errorf("Expected subroutine %s, got %s", e.Subroutine, flows[i].Subroutine)
+			}
+			if flows[i].Backend != e.Backend {
+				t.Errorf("Expected backend %s, got %s", e.Backend, flows[i].Backend)
+			}
+		}
 	}
 }
