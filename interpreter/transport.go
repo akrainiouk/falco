@@ -135,6 +135,9 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 	} else {
 		req.Host = host
 	}
+	if overrideBackend != nil && overrideBackend.BackendNameHeader != "" {
+		req.Header.Set(overrideBackend.BackendNameHeader, backend.Value.Name.Value)
+	}
 	setupFastlyHeaders(req)
 
 	hostHeader, err := i.getOriginHostHeader(backend, host)
