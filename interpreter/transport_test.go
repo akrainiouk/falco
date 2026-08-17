@@ -103,7 +103,7 @@ func newTestContextWithRequest(t *testing.T) *context.Context {
 	return ctx
 }
 
-// TestCreateBackendRequestHostHeader verifies that the HostHeader override
+// TestCreateBackendRequestHostHeader verifies that the OriginalHostHeader override
 // takes precedence over the backend's host_header property when constructing
 // the backend request, and that the backend's host_header property is used
 // when the override is empty.
@@ -115,18 +115,18 @@ func TestCreateBackendRequestHostHeader(t *testing.T) {
 		expectedHost     string
 	}{
 		{
-			name: "HostHeader override wins over backend host_header",
+			name: "OriginalHostHeader override wins over backend host_header",
 			backend: newBackend("api",
 				backendProperty("host", &ast.String{Value: "origin.example.com"}),
 				backendProperty("host_header", &ast.String{Value: "backend.example.com"}),
 			),
 			overrideBackends: map[string]*config.OverrideBackend{
-				"api": {HostHeader: "override.example.com"},
+				"api": {OriginalHostHeader: "override.example.com"},
 			},
 			expectedHost: "override.example.com",
 		},
 		{
-			name: "empty HostHeader falls back to backend host_header",
+			name: "empty OriginalHostHeader falls back to backend host_header",
 			backend: newBackend("api",
 				backendProperty("host", &ast.String{Value: "origin.example.com"}),
 				backendProperty("host_header", &ast.String{Value: "backend.example.com"}),

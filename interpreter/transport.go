@@ -126,8 +126,8 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 		return nil, exception.Runtime(nil, "Failed to create backend request: %s", err)
 	}
 	req.Header = i.ctx.Request.Header.Clone()
-	if overrideBackend != nil && overrideBackend.HostHeader != "" {
-		req.Host = overrideBackend.HostHeader
+	if overrideBackend != nil && overrideBackend.OriginalHostHeader != "" {
+		req.Host = overrideBackend.OriginalHostHeader
 	} else if hostHeader, err := i.getBackendProperty(backend.Value.Properties, "host_header"); err != nil {
 		return nil, errors.WithStack(err)
 	} else if hostHeader != nil {
