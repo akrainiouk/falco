@@ -22,11 +22,25 @@ const (
 )
 
 type OverrideBackend struct {
-	Host       string `yaml:"host"`
-	Port       int    `yaml:"port"`
-	HostHeader string `yaml:"host_header"`
-	SSL        bool   `yaml:"ssl" default:"true"`
-	Unhealthy  bool   `yaml:"unhealthy" default:"false"`
+	Host      string            `yaml:"host"`
+	Port      int               `yaml:"port"`
+	SSL       bool              `yaml:"ssl" default:"true"`
+	Unhealthy bool              `yaml:"unhealthy" default:"false"`
+	Headers   map[string]string `yaml:"headers"`
+
+	// ParsedHeaders is populated in config.New after YAML load. Each entry
+	// pairs a validated HTTP header name with a parsed value template. It is
+	// intentionally unexported from YAML and is the form consumed by the
+	// interpreter when injecting headers into backend requests.
+	ParsedHeaders []OverrideHeader `yaml:"-"`
+}
+
+// OverrideHeader is the compiled form of a single entry from
+// OverrideBackend.Headers: a validated HTTP header name and its parsed value
+// template.
+type OverrideHeader struct {
+	Name  string
+	Value HeaderTemplate
 }
 
 type EdgeDictionary map[string]string
@@ -196,6 +210,17 @@ func New(args []string) (*Config, error) {
 	// Copy common fields
 	c.Simulator.IncludePaths = c.IncludePaths
 	c.Testing.IncludePaths = c.IncludePaths
+
+	// Validate and compile every override backend's header templates so that
+	// bad configuration surfaces as a startup error, not per-request failure.
+	for pattern, ob := range c.OverrideBackends {
+		if ob == nil {
+			continue
+		}
+		if err := ob.parseHeaders(); err != nil {
+			return nil, errors.Wrapf(err, "override_backends %q", pattern)
+		}
+	}
 
 	// On Fastly generated VCL, "vcl_pipe" subroutine will present internally.
 	// The "vcl_pipe" subroutine looks fastly managed but undocumented, so we will ignore linting
