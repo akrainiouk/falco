@@ -1,11 +1,15 @@
 package interpreter
 
 import (
+	ghttp "net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/ysugimoto/falco/v2/ast"
+	"github.com/ysugimoto/falco/v2/config"
 	"github.com/ysugimoto/falco/v2/interpreter/context"
+	"github.com/ysugimoto/falco/v2/interpreter/http"
 	"github.com/ysugimoto/falco/v2/interpreter/value"
 )
 
@@ -124,5 +128,143 @@ func TestSendBackendRequestWithInvalidTimeoutType(t *testing.T) {
 				t.Errorf("Expected error to mention property %q, got: %s", tt.property, err.Error())
 			}
 		})
+	}
+}
+
+
+// buildOverride constructs an OverrideBackend from a raw headers map, running
+// the same validation/parsing step that config.New performs at startup so the
+// resulting entry mirrors what the interpreter would see in production.
+func buildOverride(t *testing.T, host string, port int, headers map[string]string) *config.OverrideBackend {
+	t.Helper()
+	ob := &config.OverrideBackend{Host: host, Port: port, Headers: headers}
+	// Access the unexported parseHeaders indirectly via config.New would be
+	// overkill; instead we compile each template here using the same rules.
+	if len(headers) > 0 {
+		parsed := make([]config.OverrideHeader, 0, len(headers))
+		for name, val := range headers {
+			tmpl, err := config.ParseHeaderTemplate(val)
+			if err != nil {
+				t.Fatalf("ParseHeaderTemplate(%q) failed: %s", val, err)
+			}
+			parsed = append(parsed, config.OverrideHeader{Name: name, Value: tmpl})
+		}
+		ob.ParsedHeaders = parsed
+	}
+	return ob
+}
+
+// newInterpreterWithRequest returns an interpreter whose context has a request
+// preconfigured with the given method/URL and optional inbound headers.
+func newInterpreterWithRequest(method, url string, inbound map[string]string) *Interpreter {
+	ip := New()
+	ip.ctx = context.New()
+	req := httptest.NewRequest(method, url, nil)
+	for k, v := range inbound {
+		req.Header.Set(k, v)
+	}
+	ip.ctx.Request = http.WrapRequest(req)
+	return ip
+}
+
+// TestCreateBackendRequestInjectsOverrideHeaders exercises the header
+// injection path added for the backend override feature. Each subtest builds
+// a backend, configures an override entry, and asserts the resulting backend
+// request carries the expected headers.
+func TestCreateBackendRequestInjectsOverrideHeaders(t *testing.T) {
+	backend := newBackend("bknd1",
+		backendProperty("host", &ast.String{Value: "origin.example.com"}),
+		backendProperty("port", &ast.String{Value: "80"}),
+	)
+
+	tests := []struct {
+		name     string
+		override *config.OverrideBackend
+		inbound  map[string]string
+		want     map[string]string
+	}{
+		{
+			name: "backend.name and backend.host substitution",
+			override: buildOverride(t, "127.0.0.1", 8000, map[string]string{
+				"X-Backend-Name":  "${backend.name}",
+				"X-Original-Host": "${backend.host}",
+			}),
+			want: map[string]string{
+				"X-Backend-Name":  "bknd1",
+				"X-Original-Host": "origin.example.com",
+			},
+		},
+		{
+			name: "literal value passes through",
+			override: buildOverride(t, "127.0.0.1", 8000, map[string]string{
+				"X-Token": "static-value",
+			}),
+			want: map[string]string{"X-Token": "static-value"},
+		},
+		{
+			name: "set overwrites inbound header with same name",
+			override: buildOverride(t, "127.0.0.1", 8000, map[string]string{
+				"X-Token": "override",
+			}),
+			inbound: map[string]string{"X-Token": "inbound"},
+			want:    map[string]string{"X-Token": "override"},
+		},
+		{
+			name: "headers-only override still injects (no host/port change)",
+			override: buildOverride(t, "", 0, map[string]string{
+				"X-Backend-Name": "${backend.name}",
+			}),
+			want: map[string]string{"X-Backend-Name": "bknd1"},
+		},
+		{
+			name: "escaped placeholder renders literally",
+			override: buildOverride(t, "127.0.0.1", 8000, map[string]string{
+				"X-Literal": "$${backend.name}",
+			}),
+			want: map[string]string{"X-Literal": "${backend.name}"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := newInterpreterWithRequest(ghttp.MethodGet, "http://example/test", tt.inbound)
+			ip.ctx.OverrideBackends = map[string]*config.OverrideBackend{
+				"bknd1": tt.override,
+			}
+
+			req, err := ip.createBackendRequest(ip.ctx, backend)
+			if err != nil {
+				t.Fatalf("createBackendRequest returned error: %s", err)
+			}
+			for name, want := range tt.want {
+				if got := req.Header.Get(name); got != want {
+					t.Errorf("header %q: got %q, want %q", name, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestCreateBackendRequestNoOverrideLeavesHeadersUntouched confirms that
+// inbound headers are not modified (beyond the always-applied Fastly-FF
+// header) when no override entry matches the backend.
+func TestCreateBackendRequestNoOverrideLeavesHeadersUntouched(t *testing.T) {
+	backend := newBackend("bknd1",
+		backendProperty("host", &ast.String{Value: "origin.example.com"}),
+		backendProperty("port", &ast.String{Value: "80"}),
+	)
+	ip := newInterpreterWithRequest(ghttp.MethodGet, "http://example/test", map[string]string{
+		"X-Token": "inbound",
+	})
+
+	req, err := ip.createBackendRequest(ip.ctx, backend)
+	if err != nil {
+		t.Fatalf("createBackendRequest returned error: %s", err)
+	}
+	if got := req.Header.Get("X-Token"); got != "inbound" {
+		t.Errorf("X-Token: got %q, want %q", got, "inbound")
+	}
+	if req.Header.Get("X-Backend-Name") != "" {
+		t.Errorf("X-Backend-Name should not be set when no override is configured")
 	}
 }

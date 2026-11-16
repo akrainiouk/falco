@@ -126,9 +126,7 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 		return nil, exception.Runtime(nil, "Failed to create backend request: %s", err)
 	}
 	req.Header = i.ctx.Request.Header.Clone()
-	if overrideBackend != nil && overrideBackend.HostHeader != "" {
-		req.Host = overrideBackend.HostHeader
-	} else if hostHeader, err := i.getBackendProperty(backend.Value.Properties, "host_header"); err != nil {
+	if hostHeader, err := i.getBackendProperty(backend.Value.Properties, "host_header"); err != nil {
 		return nil, errors.WithStack(err)
 	} else if hostHeader != nil {
 		req.Host = value.Unwrap[*value.String](hostHeader).Value
@@ -143,7 +141,41 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 	} else if hostHeader != nil {
 		req.Header.Set("Host", *hostHeader)
 	}
+
+	// Inject headers configured on the override entry. Templates were parsed
+	// at config load time; here we evaluate them against the pre-override
+	// backend state and overwrite any inbound headers with the same name.
+	if overrideBackend != nil && len(overrideBackend.ParsedHeaders) > 0 {
+		originalHost, err := i.resolveOriginalBackendHost(backend)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		vars := map[string]string{
+			"backend.name": backend.Value.Name.Value,
+			"backend.host": originalHost,
+		}
+		for _, h := range overrideBackend.ParsedHeaders {
+			req.Header.Set(h.Name, h.Value.Render(vars))
+		}
+	}
 	return req, nil
+}
+
+// resolveOriginalBackendHost returns the .host value declared on the VCL
+// backend, ignoring any override. It is used to expose the pre-override host
+// through the ${backend.host} template variable.
+func (i *Interpreter) resolveOriginalBackendHost(backend *value.Backend) (string, error) {
+	v, err := i.getBackendProperty(backend.Value.Properties, "host")
+	if err != nil {
+		return "", err
+	}
+	if v == nil {
+		return "", nil
+	}
+	if v.Type() != value.StringType {
+		return "", exception.Runtime(nil, "backend %s property 'host' must be STRING, got %s", backend.Value.Name.Value, v.Type())
+	}
+	return value.Unwrap[*value.String](v).Value, nil
 }
 
 func (i *Interpreter) getOriginHostHeader(backend *value.Backend, defaultHost string) (*string, error) {
