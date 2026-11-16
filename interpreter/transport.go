@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/gobwas/glob"
@@ -58,16 +59,6 @@ func setupFastlyHeaders(req *http.Request) {
 }
 
 func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value.Backend) (*http.Request, error) {
-	var port string
-	if v, err := i.getBackendProperty(backend.Value.Properties, "port"); err != nil {
-		return nil, errors.WithStack(err)
-	} else if v != nil {
-		if v.Type() != value.StringType {
-			return nil, exception.Runtime(nil, "backend %s property 'port' must be STRING, got %s", backend.Value.Name.Value, v.Type())
-		}
-		port = value.Unwrap[*value.String](v).Value
-	}
-
 	// Get override backend host from configuration
 	overrideBackend, err := getOverrideBackend(ctx, backend.Value.Name.Value)
 	if err != nil {
@@ -93,29 +84,35 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 		}
 	}
 
-	// host may be overrided by config
-	var host string
-	if overrideBackend != nil {
-		host = overrideBackend.Host
-	} else {
-		if v, err := i.getBackendProperty(backend.Value.Properties, "host"); err != nil {
-			return nil, errors.WithStack(err)
-		} else if v != nil {
-			if v.Type() != value.StringType {
-				return nil, exception.Runtime(nil, "backend %s property 'host' must be STRING, got %s", backend.Value.Name.Value, v.Type())
-			}
-			host = value.Unwrap[*value.String](v).Value
-		} else {
-			return nil, exception.Runtime(nil, "Failed to find host for backend %s", backend)
+	var port string
+	if overrideBackend != nil && overrideBackend.Port != 0 {
+		port = strconv.Itoa(overrideBackend.Port)
+	} else if v, err := i.getBackendProperty(backend.Value.Properties, "port"); err != nil {
+		return nil, errors.WithStack(err)
+	} else if v != nil {
+		if v.Type() != value.StringType {
+			return nil, exception.Runtime(nil, "backend %s property 'port' must be STRING, got %s", backend.Value.Name.Value, v.Type())
 		}
+		port = value.Unwrap[*value.String](v).Value
+	} else if scheme == HTTPS_SCHEME {
+		port = "443"
+	} else {
+		port = "80"
 	}
 
-	if port == "" {
-		if scheme == HTTPS_SCHEME {
-			port = "443"
-		} else {
-			port = "80"
+	// host may be overrided by config
+	var host string
+	if overrideBackend != nil && overrideBackend.Host != "" {
+		host = overrideBackend.Host
+	} else if v, err := i.getBackendProperty(backend.Value.Properties, "host"); err != nil {
+		return nil, errors.WithStack(err)
+	} else if v != nil {
+		if v.Type() != value.StringType {
+			return nil, exception.Runtime(nil, "backend %s property 'host' must be STRING, got %s", backend.Value.Name.Value, v.Type())
 		}
+		host = value.Unwrap[*value.String](v).Value
+	} else {
+		return nil, exception.Runtime(nil, "Failed to find host for backend %s", backend)
 	}
 
 	url := fmt.Sprintf("%s://%s:%s%s", scheme, host, port, i.ctx.Request.URL.Path)
@@ -129,6 +126,18 @@ func (i *Interpreter) createBackendRequest(ctx *icontext.Context, backend *value
 		return nil, exception.Runtime(nil, "Failed to create backend request: %s", err)
 	}
 	req.Header = i.ctx.Request.Header.Clone()
+	if overrideBackend != nil && overrideBackend.OriginalHostHeader != "" {
+		req.Host = overrideBackend.OriginalHostHeader
+	} else if hostHeader, err := i.getBackendProperty(backend.Value.Properties, "host_header"); err != nil {
+		return nil, errors.WithStack(err)
+	} else if hostHeader != nil {
+		req.Host = value.Unwrap[*value.String](hostHeader).Value
+	} else {
+		req.Host = host
+	}
+	if overrideBackend != nil && overrideBackend.BackendNameHeader != "" {
+		req.Header.Set(overrideBackend.BackendNameHeader, backend.Value.Name.Value)
+	}
 	setupFastlyHeaders(req)
 
 	hostHeader, err := i.getOriginHostHeader(backend, host)
