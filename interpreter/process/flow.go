@@ -14,6 +14,7 @@ type Flow struct {
 	Name            string    `json:"name,omitempty"`
 	Scope           string    `json:"scope"`
 	Request         *HttpFlow `json:"req,omitempty"`
+	Backend         string    `json:"backend,omitempty"`
 	BackendRequest  *HttpFlow `json:"bereq,omitempty"`
 	BackendResponse *HttpFlow `json:"beresp,omitempty"`
 	Response        *HttpFlow `json:"resp,omitempty"`
@@ -31,6 +32,9 @@ func NewFlow(ctx *icontext.Context, opts ...Option) *Flow {
 	}
 	if ctx.Request != nil {
 		f.Request = newFlowRequest(ctx.Request.Clone(c))
+	}
+	if ctx.Backend != nil {
+		f.Backend = ctx.Backend.String()
 	}
 	if ctx.BackendRequest != nil {
 		f.BackendRequest = newFlowRequest(ctx.BackendRequest.Clone(c))
